@@ -1,0 +1,93 @@
+import { useState } from "react";
+
+const API = "http://127.0.0.1:8000";
+
+const nutrientOptions = [
+  "Calcium",
+  "Iron",
+  "Magnesium",
+  "Zinc",
+  "Vitamin C",
+];
+
+const categoryOptions = [
+  { label: "Adult MVM-2017", value: "02" },
+  { label: "Children 1-4", value: "03" },
+  { label: "Children 4+", value: "04" },
+];
+
+export default function App() {
+  const [category, setCategory] = useState("02");
+  const [nutrient, setNutrient] = useState("Calcium");
+  const [label, setLabel] = useState(100);
+  const [result, setResult] = useState(null);
+
+  const handlePredict = async () => {
+    try {
+      const res = await fetch(`${API}/predict-supplement`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          category,
+          nutrient,
+          label_claim: Number(label),
+          unit: "mg",
+          servings_per_day: 1,
+        }),
+      });
+
+      const data = await res.json();
+      setResult(data);
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
+  };
+
+  return (
+    <div style={{ padding: 20 }}>
+      <h2>TrueIntake AI</h2>
+
+      <div>
+        <label>Category: </label>
+        <select value={category} onChange={(e) => setCategory(e.target.value)}>
+          {categoryOptions.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label>Nutrient: </label>
+        <select value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
+          {nutrientOptions.map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label>Label claim: </label>
+        <input
+          type="number"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+        />
+      </div>
+
+      <button onClick={handlePredict}>Predict</button>
+
+      {result && (
+        <div style={{ marginTop: 20 }}>
+          <h3>Result</h3>
+          <p>Predicted: {result.predicted_amount_per_day} {result.model_unit}</p>
+        </div>
+      )}
+    </div>
+  );
+}
