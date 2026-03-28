@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { 
+useState } from "react";
 
 const API = "http://127.0.0.1:8000";
 
@@ -22,6 +23,10 @@ export default function App() {
   const [label, setLabel] = useState(100);
   const [result, setResult] = useState(null);
 
+  const [foodQuery, setFoodQuery] = useState("");
+  const [foodResults, setFoodResults] = useState([]);
+  const [supplementStack, setSupplementStack] = useState([]);
+  const [selectedFoods, setSelectedFoods] = useState([]);
   const handlePredict = async () => {
     try {
       const res = await fetch(`${API}/predict-supplement`, {
@@ -39,17 +44,35 @@ export default function App() {
       });
 
       const data = await res.json();
-      setResult(data);
+
+      if (!res.ok) {
+        setResult({ error: data.detail?.message || "Not supported" });
+      } else {
+        setResult(data);
+      }
     } catch (err) {
-      alert("Error: " + err.message);
+      setResult({ error: err.message });
+    }
+  };
+
+  const handleFoodSearch = async () => {
+    try {
+      const res = await fetch(
+        `${API}/search-food?query=${encodeURIComponent(foodQuery)}`
+      );
+      const data = await res.json();
+      setFoodResults(Array.isArray(data.foods) ? data.foods : []);
+    } catch (err) {
+      setFoodResults([]);
+      alert("Food search error: " + err.message);
     }
   };
 
   return (
-    <div style={{ padding: 20 }}>
+    <div style={{ padding: 20, fontFamily: "Arial, sans-serif" }}>
       <h2>TrueIntake AI</h2>
 
-      <div>
+      <div style={{ marginBottom: 12 }}>
         <label>Category: </label>
         <select value={category} onChange={(e) => setCategory(e.target.value)}>
           {categoryOptions.map((c) => (
@@ -60,7 +83,7 @@ export default function App() {
         </select>
       </div>
 
-      <div>
+      <div style={{ marginBottom: 12 }}>
         <label>Nutrient: </label>
         <select value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
           {nutrientOptions.map((n) => (
@@ -71,7 +94,7 @@ export default function App() {
         </select>
       </div>
 
-      <div>
+      <div style={{ marginBottom: 12 }}>
         <label>Label claim: </label>
         <input
           type="number"
@@ -79,15 +102,118 @@ export default function App() {
           onChange={(e) => setLabel(e.target.value)}
         />
       </div>
+<div style={{ marginTop: 10 }}>
+  <button onClick={handlePredict} style={{ marginRight: 10 }}>
+    Predict
+  </button>
 
-      <button onClick={handlePredict}>Predict</button>
+  <button
+    onClick={() =>
+      setSupplementStack([
+        ...supplementStack,
+        {
+          category,
+          nutrient,
+          label_claim: Number(label),
+          result,
+        },
+      ])
+    }
+  >
+    Add to stack
+  </button>
+</div>
+
+      <button onClick={handlePredict} style={{ marginRight: 1 }}>Predict</button>
+	<button
+  onClick={() =>
+    setSupplementStack([
+      ...supplementStack,
+      {
+        category,
+        nutrient,
+        label_claim: Number(label),
+        result,
+      },
+    ])
+  }
+  style={{ marginLeft: 8 }}
+>
+  Add to stack
+</button>
+</div>
 
       {result && (
         <div style={{ marginTop: 20 }}>
           <h3>Result</h3>
-          <p>Predicted: {result.predicted_amount_per_day} {result.model_unit}</p>
+          {result.predicted_amount_per_day ? (
+            <p>
+              Predicted: {result.predicted_amount_per_day} {result.model_unit}
+            </p>
+          ) : (
+            <p style={{ color: "red" }}>
+              {result.error || "No model available for this nutrient in this category"}
+            </p>
+          )}
         </div>
       )}
+
+      <div style={{ marginTop: 24 }}>
+        <h3>Food search</h3>
+        <input
+          type="text"
+          placeholder="Search foods"
+          value={foodQuery}
+          onChange={(e) => setFoodQuery(e.target.value)}
+        />
+        <button onClick={handleFoodSearch} style={{ marginLeft: 8 }}>
+          Search
+        </button>
+
+        <div style={{ marginTop: 12 }}>
+          {foodResults.length === 0 ? (
+            <p>No food results yet.</p>
+          ) : (
+        foodResults.slice(0, 10).map((item, idx) => (
+  <div key={item.fdc_id || item.fdcId || idx}>
+    <strong>{item.description}</strong>
+    <div>FDC ID: {item.fdc_id}</div>
+
+    <button onClick={() => setSelectedFoods([...selectedFoods, item])}>
+      Add
+    </button>
+  </div>
+))
+          )}
+        </div>
+      </div>
+     <div style={{ marginTop: 24 }}>
+        <h3>Selected foods</h3>
+        {selectedFoods.length === 0 ? (
+          <p>No foods selected yet.</p>
+        ) : (
+          selectedFoods.map((item, idx) => (
+            <div key={`${item.fdc_id || item.fdcId || idx}-${idx}`}>
+              <strong>{item.description}</strong>
+              <div>FDC ID: {item.fdc_id || item.fdcId}</div>
+            </div>
+          ))
+        )}
     </div>
+ 
+<div style={{ marginTop: 24 }}>
+  <h3>Supplement stack</h3>
+
+  {supplementStack.length === 0 ? (
+    <p>No supplements added yet.</p>
+  ) : (
+    supplementStack.map((item, idx) => (
+      <div key={idx}>
+        <strong>{item.nutrient}</strong> ({item.category}) — {item.label_claim} mg
+      </div>
+    ))
+  )}
+</div>
+</div>
   );
 }
