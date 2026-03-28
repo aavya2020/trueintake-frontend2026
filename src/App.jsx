@@ -1,6 +1,8 @@
 import { useState } from "react";
 
-const API = "https://trueintake-backend2026.onrender.com";
+const API =
+  import.meta.env.VITE_API_BASE ||
+  "https://trueintake-backend2026.onrender.com";
 
 const nutrientOptions = [
   "Calcium",
@@ -12,9 +14,13 @@ const nutrientOptions = [
 
 const categoryOptions = [
   { label: "Adult MVM-2017", value: "02" },
-  { label: "Children 1-4", value: "03" },
+  { label: "Children 1–4", value: "03" },
   { label: "Children 4+", value: "04" },
 ];
+
+const categoryLabelMap = Object.fromEntries(
+  categoryOptions.map((c) => [c.value, c.label])
+);
 
 function formatAmount(value) {
   if (value === null || value === undefined || value === "") return "0";
@@ -53,6 +59,14 @@ function getUnit(item) {
   return item.unit ?? "mg";
 }
 
+function prettyFoodName(text) {
+  if (!text) return "Food item";
+  return text
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
+}
+
 export default function App() {
   const [category, setCategory] = useState("02");
   const [nutrient, setNutrient] = useState("Calcium");
@@ -65,7 +79,17 @@ export default function App() {
   const [supplementStack, setSupplementStack] = useState([]);
   const [totals, setTotals] = useState(null);
 
+  const [isPredicting, setIsPredicting] = useState(false);
+  const [isSearchingFoods, setIsSearchingFoods] = useState(false);
+  const [isCalculatingTotals, setIsCalculatingTotals] = useState(false);
+
+  const [foodError, setFoodError] = useState("");
+  const [totalError, setTotalError] = useState("");
+
   const handlePredict = async () => {
+    setIsPredicting(true);
+    setResult(null);
+
     try {
       const res = await fetch(`${API}/predict-supplement`, {
         method: "POST",
@@ -89,51 +113,75 @@ export default function App() {
         setResult(data);
       }
     } catch (err) {
-      setResult({ error: err.message });
+      setResult({ error: err.message || "Prediction failed" });
+    } finally {
+      setIsPredicting(false);
     }
   };
 
   const handleFoodSearch = async () => {
+    const query = foodQuery.trim();
+    if (!query) return;
+
+    setIsSearchingFoods(true);
+    setFoodError("");
+    setFoodResults([]);
+
     try {
       const res = await fetch(
-        `${API}/search-food?query=${encodeURIComponent(foodQuery)}`
+        `${API}/search-food?query=${encodeURIComponent(query)}`
       );
       const data = await res.json();
+
+      if (!res.ok) {
+        setFoodError("Food search failed.");
+        return;
+      }
+
       setFoodResults(Array.isArray(data.foods) ? data.foods : []);
     } catch (err) {
       setFoodResults([]);
-      alert("Food search error: " + err.message);
+      setFoodError(err.message || "Food search failed.");
+    } finally {
+      setIsSearchingFoods(false);
     }
   };
 
   const handleAddFood = (item) => {
-    setSelectedFoods([
-      ...selectedFoods,
+    const fdcId = item.fdc_id || item.fdcId;
+    const description = prettyFoodName(item.description);
+
+    if (!fdcId) return;
+
+    setSelectedFoods((prev) => [
+      ...prev,
       {
-        fdc_id: item.fdc_id || item.fdcId,
-        description: item.description || "Food item",
+        fdc_id: fdcId,
+        description,
         grams: 100,
       },
     ]);
   };
 
   const handleRemoveFood = (indexToRemove) => {
-    setSelectedFoods(selectedFoods.filter((_, idx) => idx !== indexToRemove));
+    setSelectedFoods((prev) =>
+      prev.filter((_, idx) => idx !== indexToRemove)
+    );
   };
 
   const handleFoodGramsChange = (indexToUpdate, gramsValue) => {
-    setSelectedFoods(
-      selectedFoods.map((item, idx) =>
+    setSelectedFoods((prev) =>
+      prev.map((item, idx) =>
         idx === indexToUpdate
-          ? { ...item, grams: Number(gramsValue) || 0 }
+          ? { ...item, grams: Math.max(Number(gramsValue) || 0, 0) }
           : item
       )
     );
   };
 
   const handleAddSupplement = () => {
-    setSupplementStack([
-      ...supplementStack,
+    setSupplementStack((prev) => [
+      ...prev,
       {
         category,
         nutrient,
@@ -145,12 +193,16 @@ export default function App() {
   };
 
   const handleRemoveSupplement = (indexToRemove) => {
-    setSupplementStack(
-      supplementStack.filter((_, idx) => idx !== indexToRemove)
+    setSupplementStack((prev) =>
+      prev.filter((_, idx) => idx !== indexToRemove)
     );
   };
 
   const handleCalculateTotals = async () => {
+    setIsCalculatingTotals(true);
+    setTotalError("");
+    setTotals(null);
+
     try {
       const res = await fetch(`${API}/calculate-total-intake`, {
         method: "POST",
@@ -173,109 +225,178 @@ export default function App() {
       });
 
       const data = await res.json();
+
+      if (!res.ok) {
+        setTotalError("Could not calculate totals.");
+        return;
+      }
+
       setTotals(data);
     } catch (err) {
-      console.error(err);
-      alert("Error calculating totals");
+      setTotalError(err.message || "Error calculating totals.");
+    } finally {
+      setIsCalculatingTotals(false);
     }
   };
 
+  const cardStyle = {
+    border: "1px solid #e5e7eb",
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+    background: "#fff",
+  };
+
+  const buttonStyle = {
+    padding: "10px 14px",
+    borderRadius: 8,
+    border: "1px solid #d1d5db",
+    cursor: "pointer",
+    background: "#f9fafb",
+  };
+
+  const primaryButtonStyle = {
+    ...buttonStyle,
+    fontWeight: 600,
+  };
+
   return (
-    <div style={{ padding: 20, fontFamily: "Arial, sans-serif", maxWidth: 900 }}>
-      <h2>TrueIntake AI</h2>
+    <div
+      style={{
+        padding: 20,
+        fontFamily: "Arial, sans-serif",
+        maxWidth: 960,
+        margin: "0 auto",
+        color: "#111827",
+      }}
+    >
+      <h2 style={{ marginBottom: 6 }}>TrueIntake AI</h2>
+      <p style={{ marginTop: 0, color: "#4b5563" }}>
+        Estimate nutrient intake from supplements and foods.
+      </p>
 
-      <div style={{ marginBottom: 12 }}>
-        <label>Category: </label>
-        <select value={category} onChange={(e) => setCategory(e.target.value)}>
-          {categoryOptions.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      <div style={cardStyle}>
+        <h3 style={{ marginTop: 0 }}>Supplement prediction</h3>
 
-      <div style={{ marginBottom: 12 }}>
-        <label>Nutrient: </label>
-        <select value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
-          {nutrientOptions.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div style={{ marginBottom: 12 }}>
-        <label>Label claim: </label>
-        <input
-          type="number"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-        />
-      </div>
-
-      <div style={{ marginTop: 10, display: "flex", gap: 10 }}>
-        <button onClick={handlePredict}>Predict</button>
-        <button onClick={handleAddSupplement}>Add to stack</button>
-      </div>
-
-      {result && (
-        <div style={{ marginTop: 20 }}>
-          <h3>Result</h3>
-          {result.predicted_amount_per_day ? (
-            <p>
-              Predicted: {result.predicted_amount_per_day} {result.model_unit}
-            </p>
-          ) : (
-            <p style={{ color: "red" }}>
-              {result.error || "No model available for this nutrient in this category"}
-            </p>
-          )}
+        <div style={{ marginBottom: 12 }}>
+          <label>Category: </label>
+          <select value={category} onChange={(e) => setCategory(e.target.value)}>
+            {categoryOptions.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
         </div>
-      )}
 
-      <div style={{ marginTop: 24 }}>
-        <h3>Food search</h3>
+        <div style={{ marginBottom: 12 }}>
+          <label>Nutrient: </label>
+          <select value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
+            {nutrientOptions.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label>Label claim: </label>
+          <input
+            type="number"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            min="0"
+          />
+        </div>
+
+        <div style={{ marginTop: 10, display: "flex", gap: 10 }}>
+          <button
+            onClick={handlePredict}
+            disabled={isPredicting}
+            style={primaryButtonStyle}
+          >
+            {isPredicting ? "Predicting..." : "Predict"}
+          </button>
+          <button onClick={handleAddSupplement} style={buttonStyle}>
+            Add to stack
+          </button>
+        </div>
+
+        {result && (
+          <div style={{ marginTop: 20 }}>
+            <h4>Result</h4>
+            {result.predicted_amount_per_day ? (
+              <p>
+                Predicted: {formatAmount(result.predicted_amount_per_day)}{" "}
+                {result.model_unit || "mg"}
+              </p>
+            ) : (
+              <p style={{ color: "red" }}>
+                {result.error || "No model available for this nutrient in this category"}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={cardStyle}>
+        <h3 style={{ marginTop: 0 }}>Food search</h3>
         <input
           type="text"
           placeholder="Search foods"
           value={foodQuery}
           onChange={(e) => setFoodQuery(e.target.value)}
         />
-        <button onClick={handleFoodSearch} style={{ marginLeft: 8 }}>
-          Search
+        <button
+          onClick={handleFoodSearch}
+          disabled={isSearchingFoods}
+          style={{ ...buttonStyle, marginLeft: 8 }}
+        >
+          {isSearchingFoods ? "Searching..." : "Search"}
         </button>
 
+        {foodError && <p style={{ color: "red" }}>{foodError}</p>}
+
         <div style={{ marginTop: 12 }}>
-          {foodResults.length === 0 ? (
+          {!isSearchingFoods && foodResults.length === 0 ? (
             <p>No food results yet.</p>
           ) : (
             foodResults.slice(0, 10).map((item, idx) => (
               <div
                 key={item.fdc_id || item.fdcId || idx}
-                style={{ marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid #ddd" }}
+                style={{
+                  marginBottom: 8,
+                  paddingBottom: 8,
+                  borderBottom: "1px solid #ddd",
+                }}
               >
-                <strong>{item.description}</strong>
+                <strong>{prettyFoodName(item.description)}</strong>
                 <div>FDC ID: {item.fdc_id || item.fdcId}</div>
-                <button onClick={() => handleAddFood(item)}>Add</button>
+                <button onClick={() => handleAddFood(item)} style={buttonStyle}>
+                  Add
+                </button>
               </div>
             ))
           )}
         </div>
       </div>
 
-      <div style={{ marginTop: 24 }}>
-        <h3>Selected foods</h3>
+      <div style={cardStyle}>
+        <h3 style={{ marginTop: 0 }}>Selected foods</h3>
         {selectedFoods.length === 0 ? (
           <p>No foods selected yet.</p>
         ) : (
           selectedFoods.map((item, idx) => (
             <div
               key={`${item.fdc_id || idx}-${idx}`}
-              style={{ marginBottom: 12, paddingBottom: 8, borderBottom: "1px solid #ddd" }}
+              style={{
+                marginBottom: 12,
+                paddingBottom: 8,
+                borderBottom: "1px solid #ddd",
+              }}
             >
-              <strong>{item.description}</strong>
+              <strong>{prettyFoodName(item.description)}</strong>
               <div>FDC ID: {item.fdc_id}</div>
               <div style={{ marginTop: 6 }}>
                 <label>Grams: </label>
@@ -284,43 +405,66 @@ export default function App() {
                   value={item.grams}
                   onChange={(e) => handleFoodGramsChange(idx, e.target.value)}
                   style={{ width: 80, marginRight: 8 }}
+                  min="0"
                 />
-                <button onClick={() => handleRemoveFood(idx)}>Remove</button>
+                <button onClick={() => handleRemoveFood(idx)} style={buttonStyle}>
+                  Remove
+                </button>
               </div>
             </div>
           ))
         )}
       </div>
 
-      <div style={{ marginTop: 24 }}>
-        <h3>Supplement stack</h3>
+      <div style={cardStyle}>
+        <h3 style={{ marginTop: 0 }}>Supplement stack</h3>
         {supplementStack.length === 0 ? (
           <p>No supplements added yet.</p>
         ) : (
           supplementStack.map((item, idx) => (
             <div
               key={idx}
-              style={{ marginBottom: 12, paddingBottom: 8, borderBottom: "1px solid #ddd" }}
+              style={{
+                marginBottom: 12,
+                paddingBottom: 8,
+                borderBottom: "1px solid #ddd",
+              }}
             >
-              <strong>{item.nutrient}</strong> ({item.category}) — {item.label_claim} {item.unit}
+              <strong>{item.nutrient}</strong> (
+              {categoryLabelMap[item.category] || item.category}) —{" "}
+              {formatAmount(item.label_claim)} {item.unit}
               <div style={{ marginTop: 6 }}>
-                <button onClick={() => handleRemoveSupplement(idx)}>Remove</button>
+                <button
+                  onClick={() => handleRemoveSupplement(idx)}
+                  style={buttonStyle}
+                >
+                  Remove
+                </button>
               </div>
             </div>
           ))
         )}
 
-        <button onClick={handleCalculateTotals} style={{ marginTop: 12 }}>
-          Calculate totals
+        <button
+          onClick={handleCalculateTotals}
+          disabled={isCalculatingTotals}
+          style={{ ...primaryButtonStyle, marginTop: 12 }}
+        >
+          {isCalculatingTotals ? "Calculating..." : "Calculate totals"}
         </button>
+
+        {totalError && <p style={{ color: "red" }}>{totalError}</p>}
       </div>
 
       {totals && (
-        <div style={{ marginTop: 24 }}>
-          <h3>Combined totals</h3>
+        <div style={cardStyle}>
+          <h3 style={{ marginTop: 0 }}>Combined totals</h3>
+
           {totals.summary && (
             <div style={{ marginBottom: 12 }}>
-              Foods: {totals.summary.food_count} | Supplements: {totals.summary.supplement_count} | Nutrients: {totals.summary.nutrient_count}
+              Foods: {totals.summary.food_count} | Supplements:{" "}
+              {totals.summary.supplement_count} | Nutrients:{" "}
+              {totals.summary.nutrient_count}
             </div>
           )}
 
@@ -351,10 +495,18 @@ export default function App() {
                     marginBottom: 6,
                   }}
                 >
-                  <div><strong>{item.nutrient}</strong></div>
-                  <div>{formatAmount(getFoodAmount(item))} {getUnit(item)}</div>
-                  <div>{formatAmount(getSupplementAmount(item))} {getUnit(item)}</div>
-                  <div>{formatAmount(getTotalAmount(item))} {getUnit(item)}</div>
+                  <div>
+                    <strong>{item.nutrient}</strong>
+                  </div>
+                  <div>
+                    {formatAmount(getFoodAmount(item))} {getUnit(item)}
+                  </div>
+                  <div>
+                    {formatAmount(getSupplementAmount(item))} {getUnit(item)}
+                  </div>
+                  <div>
+                    {formatAmount(getTotalAmount(item))} {getUnit(item)}
+                  </div>
                 </div>
               ))}
             </div>
