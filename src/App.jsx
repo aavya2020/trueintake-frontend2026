@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-const API = "https://trueintake-dsid-backend.onrender.com";
+const API = "https://trueintake-backend2026.onrender.com";
 
 const nutrientOptions = [
   "Calcium",
