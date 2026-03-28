@@ -1,14 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-const API = "https://trueintake-backend2026.onrender.com";
-
-const nutrientOptions = [
-  "Calcium",
-  "Iron",
-  "Magnesium",
-  "Zinc",
-  "Vitamin C",
-];
+const API =
+  import.meta.env.VITE_API_BASE ||
+  "https://trueintake-backend2026.onrender.com";
 
 const categoryOptions = [
   { label: "Adult MVM-2017", value: "02" },
@@ -16,11 +10,53 @@ const categoryOptions = [
   { label: "Children 4+", value: "04" },
 ];
 
+const categoryLabelMap = Object.fromEntries(
+  categoryOptions.map((c) => [c.value, c.label])
+);
+
+const DV_MAP = {
+  "Vitamin A": { dv: 900, unit: "mcg", ul: 3000 },
+  "Vitamin C": { dv: 90, unit: "mg", ul: 2000 },
+  "Vitamin D": { dv: 20, unit: "mcg", ul: 100 },
+  "Vitamin E": { dv: 15, unit: "mg", ul: 1000 },
+  "Vitamin K": { dv: 120, unit: "mcg", ul: null },
+  Thiamin: { dv: 1.2, unit: "mg", ul: null },
+  Riboflavin: { dv: 1.3, unit: "mg", ul: null },
+  Niacin: { dv: 16, unit: "mg", ul: 35 },
+  "Vitamin B6": { dv: 1.7, unit: "mg", ul: 100 },
+  Folate: { dv: 400, unit: "mcg", ul: 1000 },
+  "Vitamin B12": { dv: 2.4, unit: "mcg", ul: null },
+  Biotin: { dv: 30, unit: "mcg", ul: null },
+  Pantothenic: { dv: 5, unit: "mg", ul: null },
+  Choline: { dv: 550, unit: "mg", ul: 3500 },
+  Calcium: { dv: 1300, unit: "mg", ul: 2500 },
+  Iron: { dv: 18, unit: "mg", ul: 45 },
+  Magnesium: { dv: 420, unit: "mg", ul: 350 },
+  Phosphorus: { dv: 1250, unit: "mg", ul: 4000 },
+  Iodine: { dv: 150, unit: "mcg", ul: 1100 },
+  Zinc: { dv: 11, unit: "mg", ul: 40 },
+  Selenium: { dv: 55, unit: "mcg", ul: 400 },
+  Copper: { dv: 0.9, unit: "mg", ul: 10 },
+  Manganese: { dv: 2.3, unit: "mg", ul: 11 },
+  Chromium: { dv: 35, unit: "mcg", ul: null },
+  Molybdenum: { dv: 45, unit: "mcg", ul: 2000 },
+  Potassium: { dv: 4700, unit: "mg", ul: null },
+};
+
 function formatAmount(value) {
   if (value === null || value === undefined || value === "") return "0";
   const num = Number(value);
   if (Number.isNaN(num)) return String(value);
   return Number.isInteger(num) ? String(num) : num.toFixed(1);
+}
+
+function normalizeNutrientName(name) {
+  return String(name || "").trim();
+}
+
+function prettyFoodName(text) {
+  if (!text) return "Food item";
+  return String(text).trim();
 }
 
 function getFoodAmount(item) {
@@ -53,9 +89,44 @@ function getUnit(item) {
   return item.unit ?? "mg";
 }
 
+function getDvInfo(nutrient) {
+  return DV_MAP[normalizeNutrientName(nutrient)] || null;
+}
+
+function getPercentDv(total, nutrient, unit) {
+  const info = getDvInfo(nutrient);
+  if (!info || !info.dv) return null;
+  if (info.unit !== unit) return null;
+  const value = Number(total);
+  if (Number.isNaN(value)) return null;
+  return (value / info.dv) * 100;
+}
+
+function getStatusLabel(total, nutrient, unit) {
+  const info = getDvInfo(nutrient);
+  const value = Number(total);
+  if (Number.isNaN(value)) return "Unknown";
+
+  if (info && info.unit === unit && info.ul && value > info.ul) {
+    return "Above upper limit";
+  }
+
+  const pct = getPercentDv(total, nutrient, unit);
+  if (pct === null) return "No reference";
+
+  if (pct < 20) return "Low";
+  if (pct < 100) return "Moderate";
+  if (pct <= 150) return "Meets daily needs";
+  return "High";
+}
+
 export default function App() {
   const [category, setCategory] = useState("02");
   const [nutrient, setNutrient] = useState("Calcium");
+  const [nutrientOptions, setNutrientOptions] = useState(["Calcium"]);
+  const [isLoadingNutrients, setIsLoadingNutrients] = useState(false);
+  const [nutrientError, setNutrientError] = useState("");
+
   const [label, setLabel] = useState(100);
   const [result, setResult] = useState(null);
 
@@ -64,6 +135,62 @@ export default function App() {
   const [selectedFoods, setSelectedFoods] = useState([]);
   const [supplementStack, setSupplementStack] = useState([]);
   const [totals, setTotals] = useState(null);
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadNutrients() {
+      setIsLoadingNutrients(true);
+      setNutrientError("");
+
+      try {
+        const res = await fetch(
+          `${API}/nutrients?category=${encodeURIComponent(category)}`
+        );
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error("Could not load nutrients");
+        }
+
+        let items = [];
+        if (Array.isArray(data)) {
+          items = data;
+        } else if (Array.isArray(data.nutrients)) {
+          items = data.nutrients;
+        } else if (typeof data === "object" && data !== null) {
+          items = Object.values(data).flat().filter(Boolean);
+        }
+
+        const cleaned = [
+          ...new Set(items.map((x) => String(x).trim()).filter(Boolean)),
+        ].sort();
+
+        if (!ignore && cleaned.length) {
+          setNutrientOptions(cleaned);
+          if (!cleaned.includes(nutrient)) {
+            setNutrient(cleaned[0]);
+          }
+        }
+      } catch (err) {
+        if (!ignore) {
+          setNutrientError(err.message || "Failed to load nutrients");
+          setNutrientOptions(["Calcium"]);
+          setNutrient("Calcium");
+        }
+      } finally {
+        if (!ignore) {
+          setIsLoadingNutrients(false);
+        }
+      }
+    }
+
+    loadNutrients();
+
+    return () => {
+      ignore = true;
+    };
+  }, [category]);
 
   const handlePredict = async () => {
     try {
@@ -111,7 +238,7 @@ export default function App() {
       ...selectedFoods,
       {
         fdc_id: item.fdc_id || item.fdcId,
-        description: item.description || "Food item",
+        description: prettyFoodName(item.description || "Food item"),
         grams: 100,
       },
     ]);
@@ -180,9 +307,20 @@ export default function App() {
     }
   };
 
+  const hasUpperLimitWarning =
+    totals?.totals?.some((item) => {
+      const status = getStatusLabel(
+        getTotalAmount(item),
+        item.nutrient,
+        getUnit(item)
+      );
+      return status === "Above upper limit";
+    }) || false;
+
   return (
-    <div style={{ padding: 20, fontFamily: "Arial, sans-serif", maxWidth: 900 }}>
+    <div style={{ padding: 20, fontFamily: "Arial, sans-serif", maxWidth: 1000 }}>
       <h2>TrueIntake AI</h2>
+      <p>Estimate nutrient intake from supplements and foods.</p>
 
       <div style={{ marginBottom: 12 }}>
         <label>Category: </label>
@@ -197,13 +335,25 @@ export default function App() {
 
       <div style={{ marginBottom: 12 }}>
         <label>Nutrient: </label>
-        <select value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
+        <select
+          value={nutrient}
+          onChange={(e) => setNutrient(e.target.value)}
+          disabled={isLoadingNutrients}
+        >
           {nutrientOptions.map((n) => (
             <option key={n} value={n}>
               {n}
             </option>
           ))}
         </select>
+        {isLoadingNutrients && (
+          <div style={{ fontSize: 12, marginTop: 4 }}>Loading nutrients...</div>
+        )}
+        {nutrientError && (
+          <div style={{ fontSize: 12, marginTop: 4, color: "red" }}>
+            {nutrientError}
+          </div>
+        )}
       </div>
 
       <div style={{ marginBottom: 12 }}>
@@ -225,7 +375,8 @@ export default function App() {
           <h3>Result</h3>
           {result.predicted_amount_per_day ? (
             <p>
-              Predicted: {result.predicted_amount_per_day} {result.model_unit}
+              Predicted: {formatAmount(result.predicted_amount_per_day)}{" "}
+              {result.model_unit || "mg"}
             </p>
           ) : (
             <p style={{ color: "red" }}>
@@ -256,7 +407,7 @@ export default function App() {
                 key={item.fdc_id || item.fdcId || idx}
                 style={{ marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid #ddd" }}
               >
-                <strong>{item.description}</strong>
+                <strong>{prettyFoodName(item.description)}</strong>
                 <div>FDC ID: {item.fdc_id || item.fdcId}</div>
                 <button onClick={() => handleAddFood(item)}>Add</button>
               </div>
@@ -275,7 +426,7 @@ export default function App() {
               key={`${item.fdc_id || idx}-${idx}`}
               style={{ marginBottom: 12, paddingBottom: 8, borderBottom: "1px solid #ddd" }}
             >
-              <strong>{item.description}</strong>
+              <strong>{prettyFoodName(item.description)}</strong>
               <div>FDC ID: {item.fdc_id}</div>
               <div style={{ marginTop: 6 }}>
                 <label>Grams: </label>
@@ -302,7 +453,9 @@ export default function App() {
               key={idx}
               style={{ marginBottom: 12, paddingBottom: 8, borderBottom: "1px solid #ddd" }}
             >
-              <strong>{item.nutrient}</strong> ({item.category}) — {item.label_claim} {item.unit}
+              <strong>{item.nutrient}</strong> (
+              {categoryLabelMap[item.category] || item.category}) —{" "}
+              {formatAmount(item.label_claim)} {item.unit}
               <div style={{ marginTop: 6 }}>
                 <button onClick={() => handleRemoveSupplement(idx)}>Remove</button>
               </div>
@@ -318,9 +471,26 @@ export default function App() {
       {totals && (
         <div style={{ marginTop: 24 }}>
           <h3>Combined totals</h3>
+
           {totals.summary && (
             <div style={{ marginBottom: 12 }}>
-              Foods: {totals.summary.food_count} | Supplements: {totals.summary.supplement_count} | Nutrients: {totals.summary.nutrient_count}
+              Foods: {totals.summary.food_count} | Supplements:{" "}
+              {totals.summary.supplement_count} | Nutrients:{" "}
+              {totals.summary.nutrient_count}
+            </div>
+          )}
+
+          {hasUpperLimitWarning && (
+            <div
+              style={{
+                background: "#fff4e5",
+                border: "1px solid #f5c16c",
+                padding: 10,
+                marginBottom: 12,
+              }}
+            >
+              Warning: one or more nutrients may be above the tolerable upper
+              limit.
             </div>
           )}
 
@@ -329,7 +499,7 @@ export default function App() {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "2fr 1fr 1fr 1fr",
+                  gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1.5fr",
                   gap: 8,
                   fontWeight: "bold",
                   marginBottom: 8,
@@ -339,24 +509,45 @@ export default function App() {
                 <div>From food</div>
                 <div>From supplement</div>
                 <div>Total</div>
+                <div>%DV</div>
+                <div>Status</div>
               </div>
 
-              {totals.totals.map((item, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "2fr 1fr 1fr 1fr",
-                    gap: 8,
-                    marginBottom: 6,
-                  }}
-                >
-                  <div><strong>{item.nutrient}</strong></div>
-                  <div>{formatAmount(getFoodAmount(item))} {getUnit(item)}</div>
-                  <div>{formatAmount(getSupplementAmount(item))} {getUnit(item)}</div>
-                  <div>{formatAmount(getTotalAmount(item))} {getUnit(item)}</div>
-                </div>
-              ))}
+              {totals.totals.map((item, idx) => {
+                const totalAmount = getTotalAmount(item);
+                const unit = getUnit(item);
+                const percentDv = getPercentDv(totalAmount, item.nutrient, unit);
+                const status = getStatusLabel(totalAmount, item.nutrient, unit);
+
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1.5fr",
+                      gap: 8,
+                      marginBottom: 6,
+                    }}
+                  >
+                    <div>
+                      <strong>{item.nutrient}</strong>
+                    </div>
+                    <div>
+                      {formatAmount(getFoodAmount(item))} {unit}
+                    </div>
+                    <div>
+                      {formatAmount(getSupplementAmount(item))} {unit}
+                    </div>
+                    <div>
+                      {formatAmount(totalAmount)} {unit}
+                    </div>
+                    <div>
+                      {percentDv === null ? "—" : `${formatAmount(percentDv)}%`}
+                    </div>
+                    <div>{status}</div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <p>No totals available.</p>
