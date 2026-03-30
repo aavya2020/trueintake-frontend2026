@@ -1,6 +1,8 @@
 import { useState } from "react";
 
-const API = "https://trueintake-backend2026.onrender.com";
+const API =
+  import.meta.env.VITE_API_BASE ||
+  "https://trueintake-backend2026.onrender.com";
 
 const nutrientOptions = [
   "Calcium",
@@ -15,6 +17,10 @@ const categoryOptions = [
   { label: "Children 1-4", value: "03" },
   { label: "Children 4+", value: "04" },
 ];
+
+const categoryLabelMap = Object.fromEntries(
+  categoryOptions.map((c) => [c.value, c.label])
+);
 
 const DV_MAP = {
   Calcium: { dv: 1300, unit: "mg", ul: 2500 },
@@ -32,15 +38,29 @@ function formatAmount(value) {
 }
 
 function getFoodAmount(item) {
-  return item.from_food ?? item.food ?? 0;
+  return (
+    item.from_food ??
+    item.food ??
+    item.food_total ??
+    item.food_amount ??
+    item.amount_from_food ??
+    0
+  );
 }
 
 function getSupplementAmount(item) {
-  return item.from_supplement ?? item.supplement ?? 0;
+  return (
+    item.from_supplement ??
+    item.supplement ??
+    item.supplement_total ??
+    item.supplement_amount ??
+    item.amount_from_supplement ??
+    0
+  );
 }
 
 function getTotalAmount(item) {
-  return item.total ?? 0;
+  return item.total ?? item.total_amount ?? item.combined_total ?? 0;
 }
 
 function getUnit(item) {
@@ -50,18 +70,22 @@ function getUnit(item) {
 function getPercentDv(total, nutrient, unit) {
   const info = DV_MAP[nutrient];
   if (!info || info.unit !== unit) return null;
-  return (Number(total) / info.dv) * 100;
+  const val = Number(total);
+  if (Number.isNaN(val)) return null;
+  return (val / info.dv) * 100;
 }
 
 function getStatus(total, nutrient, unit) {
   const info = DV_MAP[nutrient];
-  if (!info) return "—";
+  if (!info || info.unit !== unit) return "—";
 
   const val = Number(total);
+  if (Number.isNaN(val)) return "—";
 
   if (info.ul && val > info.ul) return "Above UL";
-  const pct = getPercentDv(total, nutrient, unit);
 
+  const pct = getPercentDv(total, nutrient, unit);
+  if (pct === null) return "—";
   if (pct < 20) return "Low";
   if (pct < 100) return "Moderate";
   if (pct <= 150) return "Good";
@@ -82,138 +106,523 @@ export default function App() {
 
   const [isPro, setIsPro] = useState(false);
 
-  const handlePredict = async () => {
-    const res = await fetch(`${API}/predict-supplement`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        category,
-        nutrient,
-        label_claim: Number(label),
-        unit: "mg",
-        servings_per_day: 1,
-      }),
-    });
+  const [dsldQuery, setDsldQuery] = useState("");
 
-    const data = await res.json();
-    setResult(data);
+  const [supplementImageName, setSupplementImageName] = useState("");
+  const [foodImageName, setFoodImageName] = useState("");
+
+  const handlePredict = async () => {
+    try {
+      const res = await fetch(`${API}/predict-supplement`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          category,
+          nutrient,
+          label_claim: Number(label),
+          unit: "mg",
+          servings_per_day: 1,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setResult({ error: data.detail?.message || "Not supported" });
+      } else {
+        setResult(data);
+      }
+    } catch (err) {
+      setResult({ error: err.message || "Prediction failed" });
+    }
   };
 
   const handleFoodSearch = async () => {
-    const res = await fetch(
-      `${API}/search-food?query=${encodeURIComponent(foodQuery)}`
-    );
-    const data = await res.json();
-    setFoodResults(data.foods || []);
+    try {
+      const res = await fetch(
+        `${API}/search-food?query=${encodeURIComponent(foodQuery)}`
+      );
+      const data = await res.json();
+      setFoodResults(Array.isArray(data.foods) ? data.foods : []);
+    } catch (err) {
+      setFoodResults([]);
+      alert("Food search error: " + err.message);
+    }
   };
 
   const handleAddFood = (item) => {
     setSelectedFoods([
       ...selectedFoods,
-      { fdc_id: item.fdc_id, description: item.description, grams: 100 },
+      {
+        fdc_id: item.fdc_id || item.fdcId,
+        description: item.description || "Food item",
+        grams: 100,
+      },
     ]);
+  };
+
+  const handleRemoveFood = (indexToRemove) => {
+    setSelectedFoods(selectedFoods.filter((_, idx) => idx !== indexToRemove));
+  };
+
+  const handleFoodGramsChange = (indexToUpdate, gramsValue) => {
+    setSelectedFoods(
+      selectedFoods.map((item, idx) =>
+        idx === indexToUpdate
+          ? { ...item, grams: Number(gramsValue) || 0 }
+          : item
+      )
+    );
   };
 
   const handleAddSupplement = () => {
     setSupplementStack([
       ...supplementStack,
-      { category, nutrient, label_claim: label, unit: "mg" },
+      {
+        category,
+        nutrient,
+        label_claim: Number(label),
+        unit: "mg",
+        servings_per_day: 1,
+      },
     ]);
   };
 
-  const handleCalculateTotals = async () => {
-    const res = await fetch(`${API}/calculate-total-intake`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        supplements: supplementStack,
-        foods: selectedFoods,
-      }),
-    });
+  const handleRemoveSupplement = (indexToRemove) => {
+    setSupplementStack(
+      supplementStack.filter((_, idx) => idx !== indexToRemove)
+    );
+  };
 
-    const data = await res.json();
-    setTotals(data);
+  const handleCalculateTotals = async () => {
+    try {
+      const res = await fetch(`${API}/calculate-total-intake`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          supplements: supplementStack.map((item) => ({
+            category: item.category,
+            nutrient: item.nutrient,
+            label_claim: Number(item.label_claim),
+            unit: item.unit || "mg",
+            servings_per_day: item.servings_per_day || 1,
+          })),
+          foods: selectedFoods.map((item) => ({
+            fdc_id: item.fdc_id,
+            grams: Number(item.grams) || 100,
+          })),
+        }),
+      });
+
+      const data = await res.json();
+      setTotals(data);
+    } catch (err) {
+      console.error(err);
+      alert("Error calculating totals");
+    }
+  };
+
+  const openDsldSearch = () => {
+    const q = dsldQuery.trim();
+    const base = "https://dsld.od.nih.gov/search";
+    const url = q ? `${base}?q=${encodeURIComponent(q)}` : base;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const onSupplementImageChange = (e) => {
+    const file = e.target.files?.[0];
+    setSupplementImageName(file ? file.name : "");
+  };
+
+  const onFoodImageChange = (e) => {
+    const file = e.target.files?.[0];
+    setFoodImageName(file ? file.name : "");
+  };
+
+  const hasUpperLimitWarning =
+    totals?.totals?.some((item) => {
+      const total = getTotalAmount(item);
+      const unit = getUnit(item);
+      return getStatus(total, item.nutrient, unit) === "Above UL";
+    }) || false;
+
+  const card = {
+    background: "#fff",
+    border: "1px solid #e5e7eb",
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 16,
   };
 
   return (
-    <div style={{ padding: 20, maxWidth: 900, margin: "auto" }}>
-      <h1>TrueIntake AI</h1>
-      <p><strong>What you take. What’s really inside.</strong></p>
+    <div
+      style={{
+        padding: 20,
+        maxWidth: 980,
+        margin: "0 auto",
+        fontFamily: "Arial, sans-serif",
+        color: "#111827",
+        background: "#f8fafc",
+        minHeight: "100vh",
+      }}
+    >
+      <div
+        style={{
+          ...card,
+          background: "linear-gradient(135deg, #eef2ff 0%, #f8fafc 100%)",
+          border: "1px solid #dbeafe",
+        }}
+      >
+        <div
+          style={{
+            display: "inline-block",
+            fontSize: 12,
+            fontWeight: 700,
+            letterSpacing: 0.6,
+            textTransform: "uppercase",
+            color: "#4338ca",
+            background: "#e0e7ff",
+            padding: "6px 10px",
+            borderRadius: 999,
+            marginBottom: 12,
+          }}
+        >
+          Beta
+        </div>
 
-      <div style={{ marginBottom: 20, background: "#eee", padding: 10 }}>
-        <button onClick={() => setIsPro(!isPro)}>
-          {isPro ? "Pro ON" : "Unlock Pro Demo"}
+        <h1 style={{ margin: "0 0 8px 0" }}>TrueIntake AI</h1>
+        <p style={{ margin: "0 0 8px 0", fontWeight: 700 }}>
+          What you take. What’s really inside.
+        </p>
+        <p style={{ margin: 0, color: "#4b5563", lineHeight: 1.5 }}>
+          Estimate real nutrient intake from supplements and foods. See where
+          your totals come from, compare against Daily Value, and spot possible
+          excess before it becomes a problem.
+        </p>
+      </div>
+
+      <div
+        style={{
+          ...card,
+          background: isPro ? "#ecfdf5" : "#fff7ed",
+          border: isPro ? "1px solid #a7f3d0" : "1px solid #fdba74",
+        }}
+      >
+        <h3 style={{ marginTop: 0 }}>
+          {isPro ? "Pro is unlocked" : "Unlock TrueIntake Pro"}
+        </h3>
+        <p style={{ color: "#4b5563" }}>
+          Pro adds %DV, intake status, and safety insight flags. For now, this
+          is a demo unlock so you can test premium value before payments go
+          live.
+        </p>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+          <div style={{ background: "#fff", padding: "8px 12px", borderRadius: 10, border: "1px solid #e5e7eb" }}>
+            %DV insights
+          </div>
+          <div style={{ background: "#fff", padding: "8px 12px", borderRadius: 10, border: "1px solid #e5e7eb" }}>
+            Low / High status
+          </div>
+          <div style={{ background: "#fff", padding: "8px 12px", borderRadius: 10, border: "1px solid #e5e7eb" }}>
+            Excess warnings
+          </div>
+        </div>
+
+        <button onClick={() => setIsPro((v) => !v)}>
+          {isPro ? "Turn off Pro demo" : "Unlock Pro demo"}
         </button>
       </div>
 
-      <div>
-        <select value={category} onChange={(e) => setCategory(e.target.value)}>
-          {categoryOptions.map((c) => (
-            <option key={c.value} value={c.value}>{c.label}</option>
-          ))}
-        </select>
-
-        <select value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
-          {nutrientOptions.map((n) => (
-            <option key={n}>{n}</option>
-          ))}
-        </select>
-
-        <input
-          type="number"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-        />
-
-        <button onClick={handlePredict}>Predict</button>
-        <button onClick={handleAddSupplement}>Add</button>
+      <div style={card}>
+        <h3 style={{ marginTop: 0 }}>Supplement label image</h3>
+        <p style={{ color: "#4b5563", marginTop: 0 }}>
+          Upload UI is ready. OCR/label extraction should be added through the backend next.
+        </p>
+        <input type="file" accept="image/*" onChange={onSupplementImageChange} />
+        {supplementImageName && (
+          <div style={{ marginTop: 8 }}>Selected file: {supplementImageName}</div>
+        )}
       </div>
 
-      {result && <div>Predicted: {result.predicted_amount_per_day} mg</div>}
+      <div style={card}>
+        <h3 style={{ marginTop: 0 }}>Food label or food image</h3>
+        <p style={{ color: "#4b5563", marginTop: 0 }}>
+          Upload UI is ready. Nutrition-label OCR or food-photo analysis should be added next.
+        </p>
+        <input type="file" accept="image/*" onChange={onFoodImageChange} />
+        {foodImageName && <div style={{ marginTop: 8 }}>Selected file: {foodImageName}</div>}
+      </div>
 
-      <div>
+      <div style={card}>
+        <h3 style={{ marginTop: 0 }}>Search in NIH DSLD</h3>
+        <p style={{ color: "#4b5563", marginTop: 0 }}>
+          Search supplement products in the official NIH Dietary Supplement Label Database.
+        </p>
         <input
-          placeholder="food"
+          type="text"
+          placeholder="e.g. Centrum Silver or fish oil"
+          value={dsldQuery}
+          onChange={(e) => setDsldQuery(e.target.value)}
+          style={{ marginRight: 8 }}
+        />
+        <button onClick={openDsldSearch}>Open DSLD search</button>
+      </div>
+
+      <div style={card}>
+        <h3 style={{ marginTop: 0 }}>Supplement prediction</h3>
+
+        <div style={{ marginBottom: 12 }}>
+          <label>Category: </label>
+          <select value={category} onChange={(e) => setCategory(e.target.value)}>
+            {categoryOptions.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label>Nutrient: </label>
+          <select value={nutrient} onChange={(e) => setNutrient(e.target.value)}>
+            {nutrientOptions.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ marginBottom: 12 }}>
+          <label>Label claim: </label>
+          <input
+            type="number"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={handlePredict}>Predict</button>
+          <button onClick={handleAddSupplement}>Add to stack</button>
+        </div>
+
+        {result && (
+          <div style={{ marginTop: 16 }}>
+            <h3 style={{ marginBottom: 8 }}>Result</h3>
+            {result.predicted_amount_per_day ? (
+              <div>
+                Predicted: {formatAmount(result.predicted_amount_per_day)}{" "}
+                {result.model_unit || "mg"}
+              </div>
+            ) : (
+              <div style={{ color: "red" }}>
+                {result.error || "No model available for this nutrient in this category"}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={card}>
+        <h3 style={{ marginTop: 0 }}>Food search</h3>
+        <input
+          type="text"
+          placeholder="Search foods"
           value={foodQuery}
           onChange={(e) => setFoodQuery(e.target.value)}
         />
-        <button onClick={handleFoodSearch}>Search</button>
+        <button onClick={handleFoodSearch} style={{ marginLeft: 8 }}>
+          Search
+        </button>
 
-        {foodResults.map((f, i) => (
-          <div key={i}>
-            {f.description}
-            <button onClick={() => handleAddFood(f)}>Add</button>
-          </div>
-        ))}
+        <div style={{ marginTop: 12 }}>
+          {foodResults.length === 0 ? (
+            <p>No food results yet.</p>
+          ) : (
+            foodResults.slice(0, 10).map((item, idx) => (
+              <div
+                key={item.fdc_id || item.fdcId || idx}
+                style={{
+                  marginBottom: 8,
+                  paddingBottom: 8,
+                  borderBottom: "1px solid #ddd",
+                }}
+              >
+                <strong>{item.description}</strong>
+                <div>FDC ID: {item.fdc_id || item.fdcId}</div>
+                <button onClick={() => handleAddFood(item)}>Add</button>
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
-      <button onClick={handleCalculateTotals}>Calculate</button>
+      <div style={card}>
+        <h3 style={{ marginTop: 0 }}>Selected foods</h3>
+        {selectedFoods.length === 0 ? (
+          <p>No foods selected yet.</p>
+        ) : (
+          selectedFoods.map((item, idx) => (
+            <div
+              key={`${item.fdc_id || idx}-${idx}`}
+              style={{
+                marginBottom: 12,
+                paddingBottom: 8,
+                borderBottom: "1px solid #ddd",
+              }}
+            >
+              <strong>{item.description}</strong>
+              <div>FDC ID: {item.fdc_id}</div>
+              <div style={{ marginTop: 6 }}>
+                <label>Grams: </label>
+                <input
+                  type="number"
+                  value={item.grams}
+                  onChange={(e) => handleFoodGramsChange(idx, e.target.value)}
+                  style={{ width: 80, marginRight: 8 }}
+                />
+                <button onClick={() => handleRemoveFood(idx)}>Remove</button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div style={card}>
+        <h3 style={{ marginTop: 0 }}>Supplement stack</h3>
+        {supplementStack.length === 0 ? (
+          <p>No supplements added yet.</p>
+        ) : (
+          supplementStack.map((item, idx) => (
+            <div
+              key={idx}
+              style={{
+                marginBottom: 12,
+                paddingBottom: 8,
+                borderBottom: "1px solid #ddd",
+              }}
+            >
+              <strong>{item.nutrient}</strong> (
+              {categoryLabelMap[item.category] || item.category}) —{" "}
+              {formatAmount(item.label_claim)} {item.unit}
+              <div style={{ marginTop: 6 }}>
+                <button onClick={() => handleRemoveSupplement(idx)}>Remove</button>
+              </div>
+            </div>
+          ))
+        )}
+
+        <button onClick={handleCalculateTotals} style={{ marginTop: 12 }}>
+          Calculate totals
+        </button>
+      </div>
 
       {totals && (
-        <div>
-          <h3>Totals</h3>
+        <div style={card}>
+          <h3 style={{ marginTop: 0 }}>Combined totals</h3>
 
-          {totals.totals.map((item, i) => {
-            const total = getTotalAmount(item);
-            const unit = getUnit(item);
-            const pct = getPercentDv(total, item.nutrient, unit);
-            const status = getStatus(total, item.nutrient, unit);
+          {totals.summary && (
+            <div style={{ marginBottom: 12 }}>
+              Foods: {totals.summary.food_count} | Supplements:{" "}
+              {totals.summary.supplement_count} | Nutrients:{" "}
+              {totals.summary.nutrient_count}
+            </div>
+          )}
 
-            return (
-              <div key={i}>
-                {item.nutrient}: {formatAmount(total)} {unit}
-                {isPro && (
-                  <>
-                    {" "} | {pct?.toFixed(1)}% DV | {status}
-                  </>
-                )}
+          {!isPro && (
+            <div
+              style={{
+                background: "#eff6ff",
+                border: "1px solid #93c5fd",
+                padding: 12,
+                borderRadius: 12,
+                marginBottom: 12,
+              }}
+            >
+              <strong>Pro preview locked.</strong> Unlock Pro demo above to see
+              %DV, intake status, and excess warnings.
+            </div>
+          )}
+
+          {isPro && hasUpperLimitWarning && (
+            <div
+              style={{
+                background: "#fff4e5",
+                border: "1px solid #f5c16c",
+                padding: 10,
+                marginBottom: 12,
+              }}
+            >
+              Warning: one or more nutrients may be above the tolerable upper limit.
+            </div>
+          )}
+
+          {totals.totals?.length ? (
+            <div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: isPro
+                    ? "2fr 1fr 1fr 1fr 1fr 1.5fr"
+                    : "2fr 1fr 1fr 1fr",
+                  gap: 8,
+                  fontWeight: "bold",
+                  marginBottom: 8,
+                }}
+              >
+                <div>Nutrient</div>
+                <div>From food</div>
+                <div>From supplement</div>
+                <div>Total</div>
+                {isPro && <div>%DV</div>}
+                {isPro && <div>Status</div>}
               </div>
-            );
-          })}
+
+              {totals.totals.map((item, idx) => {
+                const total = getTotalAmount(item);
+                const unit = getUnit(item);
+                const pct = getPercentDv(total, item.nutrient, unit);
+                const status = getStatus(total, item.nutrient, unit);
+
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: isPro
+                        ? "2fr 1fr 1fr 1fr 1fr 1.5fr"
+                        : "2fr 1fr 1fr 1fr",
+                      gap: 8,
+                      marginBottom: 6,
+                    }}
+                  >
+                    <div>
+                      <strong>{item.nutrient}</strong>
+                    </div>
+                    <div>
+                      {formatAmount(getFoodAmount(item))} {unit}
+                    </div>
+                    <div>
+                      {formatAmount(getSupplementAmount(item))} {unit}
+                    </div>
+                    <div>
+                      {formatAmount(total)} {unit}
+                    </div>
+                    {isPro && <div>{pct === null ? "—" : `${formatAmount(pct)}%`}</div>}
+                    {isPro && <div>{status}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p>No totals available.</p>
+          )}
         </div>
       )}
     </div>
