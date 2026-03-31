@@ -354,7 +354,7 @@ const handleImportDsldProduct = () => {
     return;
   }
 
-  const SUPPORTED = ["Calcium", "Iron", "Magnesium", "Zinc", "Vitamin C"];
+  const SUPPORTED = ["Calcium", "Iron", "Magnesium", "Zinc"];
 
   const imported = [];
   const skipped = [];
