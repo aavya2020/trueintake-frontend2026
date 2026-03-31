@@ -109,9 +109,19 @@ function getStatus(total, nutrient, unit) {
 
 function normalizeImportUnit(unit) {
   if (!unit) return "mg";
-  const raw = String(unit).trim();
-  if (raw.toLowerCase() === "iu") return "iu";
-  return raw.toLowerCase();
+
+  const raw = String(unit).trim().toLowerCase();
+
+  if (raw === "iu") return "iu";
+  if (raw === "mcg dfe") return "mcg dfe";
+  if (raw === "μg") return "mcg";
+  if (raw === "µg") return "mcg";
+  if (raw === "grams") return "g";
+  if (raw === "gram(s)") return "g";
+  if (raw === "milligram(s)") return "mg";
+  if (raw === "microgram(s)") return "mcg";
+
+  return raw;
 }
 
 function normalizeDsldName(name) {
@@ -121,6 +131,8 @@ function normalizeDsldName(name) {
   if (raw === "b12") return "Vitamin B-12";
   if (raw === "folate") return "Folic Acid";
   if (raw === "vitamin d3") return "Vitamin D";
+  if (raw === "vitamin a palmitate") return "Vitamin A";
+  if (raw === "retinol") return "Vitamin A";
 
   return String(name || "").trim();
 }
