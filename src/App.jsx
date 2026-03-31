@@ -30,6 +30,21 @@ const DV_MAP = {
   Magnesium: { dv: 420, unit: "mg", ul: 350 },
 };
 
+const SUPPORTED_IMPORT_NUTRIENTS = new Set([
+  "Calcium",
+  "Iron",
+  "Magnesium",
+  "Zinc",
+  "Vitamin C",
+  "Vitamin D",
+  "Vitamin B-12",
+  "Folic Acid",
+  "Vitamin A",
+  "Vitamin E",
+  "Copper",
+  "Iodine",
+]);
+
 function formatAmount(value) {
   if (value === null || value === undefined || value === "") return "0";
   const num = Number(value);
@@ -97,6 +112,17 @@ function normalizeImportUnit(unit) {
   const raw = String(unit).trim();
   if (raw.toLowerCase() === "iu") return "iu";
   return raw.toLowerCase();
+}
+
+function normalizeDsldName(name) {
+  const raw = String(name || "").trim().toLowerCase();
+
+  if (raw === "vitamin b12") return "Vitamin B-12";
+  if (raw === "b12") return "Vitamin B-12";
+  if (raw === "folate") return "Folic Acid";
+  if (raw === "vitamin d3") return "Vitamin D";
+
+  return String(name || "").trim();
 }
 
 export default function App() {
@@ -232,10 +258,22 @@ export default function App() {
       });
 
       const data = await res.json();
+
+      if (!res.ok) {
+        alert(
+          data.detail?.message ||
+            data.message ||
+            "Could not calculate totals for one or more stack items."
+        );
+        setTotals(null);
+        return;
+      }
+
       setTotals(data);
     } catch (err) {
       console.error(err);
       alert("Error calculating totals");
+      setTotals(null);
     }
   };
 
@@ -300,18 +338,21 @@ export default function App() {
     const rows = selectedDsldProduct?.raw?.ingredientRows || [];
 
     if (!rows.length) {
-      alert("No importable ingredient rows found for this product.");
+      alert("No ingredient data found.");
       return;
     }
 
     const importedItems = rows
       .map((row) => {
         const qty = row.quantity?.[0];
-        if (!row?.name || !qty?.quantity || !qty?.unit) return null;
+        const normalizedName = normalizeDsldName(row?.name);
+
+        if (!SUPPORTED_IMPORT_NUTRIENTS.has(normalizedName)) return null;
+        if (!qty?.quantity || !qty?.unit) return null;
 
         return {
           category,
-          nutrient: row.name,
+          nutrient: normalizedName,
           label_claim: Number(qty.quantity),
           unit: normalizeImportUnit(qty.unit),
           servings_per_day: 1,
@@ -320,12 +361,12 @@ export default function App() {
       .filter(Boolean);
 
     if (!importedItems.length) {
-      alert("No importable quantities found for this product.");
+      alert("This product has no supported nutrients for prediction.");
       return;
     }
 
     setSupplementStack((prev) => [...prev, ...importedItems]);
-    alert(`Imported ${importedItems.length} ingredient rows into stack.`);
+    alert(`Imported ${importedItems.length} nutrients into stack.`);
   };
 
   const onSupplementImageChange = (e) => {
