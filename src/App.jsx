@@ -92,6 +92,13 @@ function getStatus(total, nutrient, unit) {
   return "High";
 }
 
+function normalizeImportUnit(unit) {
+  if (!unit) return "mg";
+  const raw = String(unit).trim();
+  if (raw.toLowerCase() === "iu") return "iu";
+  return raw.toLowerCase();
+}
+
 export default function App() {
   const [category, setCategory] = useState("02");
   const [nutrient, setNutrient] = useState("Calcium");
@@ -289,6 +296,38 @@ export default function App() {
     }
   };
 
+  const handleImportDsldProduct = () => {
+    const rows = selectedDsldProduct?.raw?.ingredientRows || [];
+
+    if (!rows.length) {
+      alert("No importable ingredient rows found for this product.");
+      return;
+    }
+
+    const importedItems = rows
+      .map((row) => {
+        const qty = row.quantity?.[0];
+        if (!row?.name || !qty?.quantity || !qty?.unit) return null;
+
+        return {
+          category,
+          nutrient: row.name,
+          label_claim: Number(qty.quantity),
+          unit: normalizeImportUnit(qty.unit),
+          servings_per_day: 1,
+        };
+      })
+      .filter(Boolean);
+
+    if (!importedItems.length) {
+      alert("No importable quantities found for this product.");
+      return;
+    }
+
+    setSupplementStack((prev) => [...prev, ...importedItems]);
+    alert(`Imported ${importedItems.length} ingredient rows into stack.`);
+  };
+
   const onSupplementImageChange = (e) => {
     const file = e.target.files?.[0];
     setSupplementImageName(file ? file.name : "");
@@ -484,9 +523,43 @@ export default function App() {
         {selectedDsldProduct && (
           <div style={detailBox}>
             <h4 style={{ marginTop: 0, marginBottom: 8 }}>Selected DSLD product</h4>
-            <div><strong>Name:</strong> {selectedDsldProduct.name || "N/A"}</div>
-            <div><strong>Brand:</strong> {selectedDsldProduct.brand || "N/A"}</div>
-            <div><strong>Product ID:</strong> {selectedDsldProduct.product_id || "N/A"}</div>
+
+            <div>
+              <strong>Name:</strong>{" "}
+              {selectedDsldProduct.name || selectedDsldProduct.raw?.fullName || "N/A"}
+            </div>
+
+            <div>
+              <strong>Brand:</strong>{" "}
+              {selectedDsldProduct.brand || selectedDsldProduct.raw?.brandName || "N/A"}
+            </div>
+
+            <div>
+              <strong>Product ID:</strong> {selectedDsldProduct.product_id || "N/A"}
+            </div>
+
+            {selectedDsldProduct.raw?.ingredientRows?.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <strong>Supplement Facts</strong>
+                <div style={{ marginTop: 8 }}>
+                  {selectedDsldProduct.raw.ingredientRows.map((row, idx) => {
+                    const qty = row.quantity?.[0];
+                    return (
+                      <div key={idx} style={{ marginTop: 4 }}>
+                        {row.name} — {qty?.quantity} {qty?.unit}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <button
+                  onClick={handleImportDsldProduct}
+                  style={{ marginTop: 12 }}
+                >
+                  Import into stack
+                </button>
+              </div>
+            )}
 
             {selectedDsldProduct.ingredients?.length > 0 && (
               <div style={{ marginTop: 12 }}>
