@@ -346,40 +346,54 @@ export default function App() {
     }
   };
 
-  const handleImportDsldProduct = () => {
-    const rows = selectedDsldProduct?.raw?.ingredientRows || [];
+const handleImportDsldProduct = () => {
+  const rows = selectedDsldProduct?.raw?.ingredientRows || [];
 
-    if (!rows.length) {
-      alert("No ingredient data found.");
+  if (!rows.length) {
+    alert("No ingredient data found.");
+    return;
+  }
+
+  const SUPPORTED = ["Calcium", "Iron", "Magnesium", "Zinc", "Vitamin C"];
+
+  const imported = [];
+  const skipped = [];
+
+  rows.forEach((row) => {
+    const qty = row.quantity?.[0];
+    const name = normalizeDsldName(row?.name);
+
+    if (!qty?.quantity || !qty?.unit) {
+      skipped.push(name || "Unknown");
       return;
     }
 
-    const importedItems = rows
-      .map((row) => {
-        const qty = row.quantity?.[0];
-        const normalizedName = normalizeDsldName(row?.name);
-
-        if (!SUPPORTED_IMPORT_NUTRIENTS.has(normalizedName)) return null;
-        if (!qty?.quantity || !qty?.unit) return null;
-
-        return {
-          category,
-          nutrient: normalizedName,
-          label_claim: Number(qty.quantity),
-          unit: normalizeImportUnit(qty.unit),
-          servings_per_day: 1,
-        };
-      })
-      .filter(Boolean);
-
-    if (!importedItems.length) {
-      alert("This product has no supported nutrients for prediction.");
+    if (!SUPPORTED.includes(name)) {
+      skipped.push(name);
       return;
     }
 
-    setSupplementStack((prev) => [...prev, ...importedItems]);
-    alert(`Imported ${importedItems.length} nutrients into stack.`);
-  };
+    imported.push({
+      category,
+      nutrient: name,
+      label_claim: Number(qty.quantity),
+      unit: normalizeImportUnit(qty.unit),
+      servings_per_day: 1,
+    });
+  });
+
+  if (!imported.length) {
+    alert("No supported nutrients found for prediction.");
+    return;
+  }
+
+  setSupplementStack((prev) => [...prev, ...imported]);
+
+  alert(
+    `Imported: ${imported.map((i) => i.nutrient).join(", ")}\n` +
+    (skipped.length ? `Skipped: ${[...new Set(skipped)].join(", ")}` : "")
+  );
+};
 
   const onSupplementImageChange = (e) => {
     const file = e.target.files?.[0];
