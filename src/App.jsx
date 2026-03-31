@@ -106,10 +106,16 @@ export default function App() {
 
   const [isPro, setIsPro] = useState(false);
 
-  const [dsldQuery, setDsldQuery] = useState("");
-
   const [supplementImageName, setSupplementImageName] = useState("");
   const [foodImageName, setFoodImageName] = useState("");
+
+  const [dsldQuery, setDsldQuery] = useState("");
+  const [dsldResults, setDsldResults] = useState([]);
+  const [dsldLoading, setDsldLoading] = useState(false);
+  const [dsldError, setDsldError] = useState("");
+  const [selectedDsldProduct, setSelectedDsldProduct] = useState(null);
+  const [dsldDetailLoading, setDsldDetailLoading] = useState(false);
+  const [dsldDetailError, setDsldDetailError] = useState("");
 
   const handlePredict = async () => {
     try {
@@ -226,11 +232,61 @@ export default function App() {
     }
   };
 
-  const openDsldSearch = () => {
+  const handleDsldSearch = async () => {
     const q = dsldQuery.trim();
-    const base = "https://dsld.od.nih.gov/search";
-    const url = q ? `${base}?q=${encodeURIComponent(q)}` : base;
-    window.open(url, "_blank", "noopener,noreferrer");
+    if (!q) return;
+
+    setDsldLoading(true);
+    setDsldError("");
+    setDsldResults([]);
+    setSelectedDsldProduct(null);
+    setDsldDetailError("");
+
+    try {
+      const res = await fetch(
+        `${API}/dsld-search?query=${encodeURIComponent(q)}`
+      );
+      const data = await res.json();
+
+      if (!res.ok) {
+        setDsldError(
+          data.detail?.message || data.message || "DSLD search failed"
+        );
+        return;
+      }
+
+      setDsldResults(Array.isArray(data.results) ? data.results : []);
+    } catch (err) {
+      setDsldError(err.message || "DSLD search failed");
+    } finally {
+      setDsldLoading(false);
+    }
+  };
+
+  const handleViewDsldProduct = async (productId) => {
+    if (!productId) return;
+
+    setDsldDetailLoading(true);
+    setDsldDetailError("");
+    setSelectedDsldProduct(null);
+
+    try {
+      const res = await fetch(`${API}/dsld-product/${productId}`);
+      const data = await res.json();
+
+      if (!res.ok) {
+        setDsldDetailError(
+          data.detail?.message || data.message || "Could not load product details"
+        );
+        return;
+      }
+
+      setSelectedDsldProduct(data);
+    } catch (err) {
+      setDsldDetailError(err.message || "Could not load product details");
+    } finally {
+      setDsldDetailLoading(false);
+    }
   };
 
   const onSupplementImageChange = (e) => {
@@ -256,6 +312,14 @@ export default function App() {
     borderRadius: 14,
     padding: 16,
     marginBottom: 16,
+  };
+
+  const detailBox = {
+    background: "#f8fafc",
+    border: "1px solid #e5e7eb",
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 12,
   };
 
   return (
@@ -359,18 +423,122 @@ export default function App() {
       </div>
 
       <div style={card}>
-        <h3 style={{ marginTop: 0 }}>Search in NIH DSLD</h3>
+        <h3 style={{ marginTop: 0 }}>Search supplement products in NIH DSLD</h3>
         <p style={{ color: "#4b5563", marginTop: 0 }}>
-          Search supplement products in the official NIH Dietary Supplement Label Database.
+          Search the NIH Dietary Supplement Label Database directly inside the app.
         </p>
-        <input
-          type="text"
-          placeholder="e.g. Centrum Silver or fish oil"
-          value={dsldQuery}
-          onChange={(e) => setDsldQuery(e.target.value)}
-          style={{ marginRight: 8 }}
-        />
-        <button onClick={openDsldSearch}>Open DSLD search</button>
+
+        <div style={{ marginBottom: 12 }}>
+          <input
+            type="text"
+            placeholder="e.g. fish oil, Centrum Silver, vitamin D"
+            value={dsldQuery}
+            onChange={(e) => setDsldQuery(e.target.value)}
+            style={{ marginRight: 8, minWidth: 260 }}
+          />
+          <button onClick={handleDsldSearch} disabled={dsldLoading}>
+            {dsldLoading ? "Searching..." : "Search DSLD"}
+          </button>
+        </div>
+
+        {dsldError && (
+          <div style={{ color: "red", marginBottom: 12 }}>{dsldError}</div>
+        )}
+
+        {dsldResults.length > 0 && (
+          <div style={detailBox}>
+            <strong>Search results</strong>
+            <div style={{ marginTop: 10 }}>
+              {dsldResults.map((item, idx) => (
+                <div
+                  key={item.id || idx}
+                  style={{
+                    borderBottom: idx < dsldResults.length - 1 ? "1px solid #e5e7eb" : "none",
+                    padding: "10px 0",
+                  }}
+                >
+                  <div style={{ fontWeight: 600 }}>{item.name || "Unnamed product"}</div>
+                  <div style={{ color: "#4b5563", margin: "4px 0" }}>
+                    {item.brand || "Brand unavailable"}
+                  </div>
+                  <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>
+                    DSLD ID: {item.id || "N/A"}
+                  </div>
+                  <button onClick={() => handleViewDsldProduct(item.id)}>
+                    View details
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {dsldDetailLoading && (
+          <div style={{ marginTop: 12 }}>Loading product details...</div>
+        )}
+
+        {dsldDetailError && (
+          <div style={{ color: "red", marginTop: 12 }}>{dsldDetailError}</div>
+        )}
+
+        {selectedDsldProduct && (
+          <div style={detailBox}>
+            <h4 style={{ marginTop: 0, marginBottom: 8 }}>Selected DSLD product</h4>
+            <div><strong>Name:</strong> {selectedDsldProduct.name || "N/A"}</div>
+            <div><strong>Brand:</strong> {selectedDsldProduct.brand || "N/A"}</div>
+            <div><strong>Product ID:</strong> {selectedDsldProduct.product_id || "N/A"}</div>
+
+            {selectedDsldProduct.ingredients?.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <strong>Ingredients</strong>
+                <div style={{ marginTop: 6, maxHeight: 200, overflowY: "auto" }}>
+                  <pre
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      margin: 0,
+                      fontSize: 12,
+                    }}
+                  >
+                    {JSON.stringify(selectedDsldProduct.ingredients, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            {selectedDsldProduct.label_statements?.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <strong>Label statements</strong>
+                <div style={{ marginTop: 6, maxHeight: 160, overflowY: "auto" }}>
+                  <pre
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      margin: 0,
+                      fontSize: 12,
+                    }}
+                  >
+                    {JSON.stringify(selectedDsldProduct.label_statements, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            <details style={{ marginTop: 12 }}>
+              <summary>Show raw product JSON</summary>
+              <pre
+                style={{
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  fontSize: 12,
+                  marginTop: 8,
+                }}
+              >
+                {JSON.stringify(selectedDsldProduct.raw, null, 2)}
+              </pre>
+            </details>
+          </div>
+        )}
       </div>
 
       <div style={card}>
