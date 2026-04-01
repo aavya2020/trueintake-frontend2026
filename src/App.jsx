@@ -354,7 +354,21 @@ const handleImportDsldProduct = () => {
     return;
   }
 
-  const SUPPORTED = ["Calcium", "Iron", "Magnesium", "Zinc"];
+  const suggested = inferDsldCategory(selectedDsldProduct);
+
+  if (
+    suggested.confidence === "needs_manual" &&
+    !["03", "04"].includes(category)
+  ) {
+    alert(
+      "This looks like a children's product. Please choose Children 1–4 or Children 4+ in the category dropdown before importing."
+    );
+    return;
+  }
+
+  const importCategory = suggested.value || category;
+
+  const SUPPORTED = ["Calcium", "Iron", "Magnesium", "Zinc", "Vitamin C"];
 
   const imported = [];
   const skipped = [];
@@ -374,7 +388,7 @@ const handleImportDsldProduct = () => {
     }
 
     imported.push({
-      category,
+      category: importCategory,
       nutrient: name,
       label_claim: Number(qty.quantity),
       unit: normalizeImportUnit(qty.unit),
@@ -390,8 +404,11 @@ const handleImportDsldProduct = () => {
   setSupplementStack((prev) => [...prev, ...imported]);
 
   alert(
-    `Imported: ${imported.map((i) => i.nutrient).join(", ")}\n` +
-    (skipped.length ? `Skipped: ${[...new Set(skipped)].join(", ")}` : "")
+    `Using DSID model: ${categoryLabelMap[importCategory] || importCategory}\n` +
+      `Imported: ${imported.map((i) => i.nutrient).join(", ")}\n` +
+      (skipped.length
+        ? `Skipped: ${[...new Set(skipped)].join(", ")}`
+        : "")
   );
 };
 
@@ -595,11 +612,34 @@ const handleImportDsldProduct = () => {
               <strong>Name:</strong>{" "}
               {selectedDsldProduct.name || selectedDsldProduct.raw?.fullName || "N/A"}
             </div>
+<div style={{ marginTop: 8 }}>
+  <strong>Current DSID model:</strong>{" "}
+  {categoryLabelMap[category] || category}
+</div>
 
+<div style={{ marginTop: 4 }}>
+  <strong>Suggested model:</strong> {dsldSuggestedCategory.label}
+</div>
+
+{dsldSuggestedCategory.value && dsldSuggestedCategory.value !== category && (
+  <button
+    onClick={() => setCategory(dsldSuggestedCategory.value)}
+    style={{ marginTop: 8 }}
+  >
+    Use suggested model
+  </button>
+)}
+
+{dsldSuggestedCategory.confidence === "needs_manual" && (
+  <div style={{ marginTop: 8, color: "#b45309" }}>
+    Choose Children 1–4 or Children 4+ in the category dropdown before importing.
+  </div>
+)}
             <div>
               <strong>Brand:</strong>{" "}
               {selectedDsldProduct.brand || selectedDsldProduct.raw?.brandName || "N/A"}
             </div>
+
 
             <div>
               <strong>Product ID:</strong> {selectedDsldProduct.product_id || "N/A"}
