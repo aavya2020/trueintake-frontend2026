@@ -114,6 +114,7 @@ function normalizeDsldName(name) {
   if (raw === "vitamin d3") return "Vitamin D";
   if (raw === "vitamin a palmitate") return "Vitamin A";
   if (raw === "retinol") return "Vitamin A";
+  if (raw === "ascorbic acid") return "Vitamin C";
 
   return String(name || "").trim();
 }
@@ -131,7 +132,7 @@ function inferDsldCategory(product) {
     };
   }
 
-  if (/child|children|kids|kid|toddler|gummy/.test(text)) {
+  if (/child|children|kids|kid|toddler|baby|babies|gummy/.test(text)) {
     return {
       value: null,
       label: "Children formula detected — choose Children 1–4 or Children 4+ manually",
@@ -170,6 +171,7 @@ export default function App() {
   const [selectedDsldProduct, setSelectedDsldProduct] = useState(null);
   const [dsldDetailLoading, setDsldDetailLoading] = useState(false);
   const [dsldDetailError, setDsldDetailError] = useState("");
+  const [importCategoryOverride, setImportCategoryOverride] = useState(null);
 
   const dsldSuggestedCategory = inferDsldCategory(selectedDsldProduct);
 
@@ -309,6 +311,7 @@ export default function App() {
     setDsldResults([]);
     setSelectedDsldProduct(null);
     setDsldDetailError("");
+    setImportCategoryOverride(null);
 
     try {
       const res = await fetch(
@@ -337,6 +340,7 @@ export default function App() {
     setDsldDetailLoading(true);
     setDsldDetailError("");
     setSelectedDsldProduct(null);
+    setImportCategoryOverride(null);
 
     try {
       const res = await fetch(`${API}/dsld-product/${productId}`);
@@ -365,17 +369,16 @@ export default function App() {
       return;
     }
 
-    if (
-      dsldSuggestedCategory.confidence === "needs_manual" &&
-      !["03", "04"].includes(category)
-    ) {
+    const suggested = dsldSuggestedCategory;
+    const importCategory = importCategoryOverride || suggested.value || category;
+
+    if (suggested.confidence === "needs_manual" && !importCategoryOverride) {
       alert(
-        "This looks like a children's product. Please choose Children 1–4 or Children 4+ in the category dropdown before importing."
+        "Please choose Adult, Children 1–4, or Children 4+ above before importing this product."
       );
       return;
     }
 
-    const importCategory = dsldSuggestedCategory.value || category;
     const SUPPORTED = ["Calcium", "Iron", "Magnesium", "Zinc", "Vitamin C"];
 
     const imported = [];
@@ -414,9 +417,7 @@ export default function App() {
     alert(
       `Using DSID model: ${categoryLabelMap[importCategory] || importCategory}\n` +
         `Imported: ${imported.map((i) => i.nutrient).join(", ")}\n` +
-        (skipped.length
-          ? `Skipped: ${[...new Set(skipped)].join(", ")}`
-          : "")
+        (skipped.length ? `Skipped: ${[...new Set(skipped)].join(", ")}` : "")
     );
   };
 
@@ -642,16 +643,57 @@ export default function App() {
             {dsldSuggestedCategory.value &&
               dsldSuggestedCategory.value !== category && (
                 <button
-                  onClick={() => setCategory(dsldSuggestedCategory.value)}
-                  style={{ marginTop: 8 }}
+                  onClick={() => {
+                    setCategory(dsldSuggestedCategory.value);
+                    setImportCategoryOverride(dsldSuggestedCategory.value);
+                  }}
+                  style={{ marginTop: 8, marginRight: 8 }}
                 >
                   Use suggested model
                 </button>
               )}
 
             {dsldSuggestedCategory.confidence === "needs_manual" && (
-              <div style={{ marginTop: 8, color: "#b45309" }}>
-                Choose Children 1–4 or Children 4+ in the category dropdown before importing.
+              <div style={{ marginTop: 10 }}>
+                <div style={{ marginBottom: 6, color: "#b45309" }}>
+                  Who is taking this?
+                </div>
+
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    onClick={() => {
+                      setCategory("02");
+                      setImportCategoryOverride("02");
+                    }}
+                  >
+                    Use Adult
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setCategory("03");
+                      setImportCategoryOverride("03");
+                    }}
+                  >
+                    Use Children 1–4
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setCategory("04");
+                      setImportCategoryOverride("04");
+                    }}
+                  >
+                    Use Children 4+
+                  </button>
+                </div>
+
+                {importCategoryOverride && (
+                  <div style={{ marginTop: 8 }}>
+                    <strong>Chosen import model:</strong>{" "}
+                    {categoryLabelMap[importCategoryOverride]}
+                  </div>
+                )}
               </div>
             )}
 
