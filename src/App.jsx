@@ -4,14 +4,6 @@ const API =
   import.meta.env.VITE_API_BASE ||
   "https://trueintake-backend2026.onrender.com";
 
-const nutrientOptions = [
-  "Calcium",
-  "Iron",
-  "Magnesium",
-  "Zinc",
-  "Vitamin C",
-];
-
 const categoryOptions = [
   { label: "Adult MVM-2017", value: "02" },
   { label: "Children 1-4", value: "03" },
@@ -22,6 +14,8 @@ const categoryLabelMap = Object.fromEntries(
   categoryOptions.map((c) => [c.value, c.label])
 );
 
+const nutrientOptions = ["Calcium", "Iron", "Magnesium", "Zinc", "Vitamin C"];
+
 const DV_MAP = {
   Calcium: { dv: 1300, unit: "mg", ul: 2500 },
   Iron: { dv: 18, unit: "mg", ul: 45 },
@@ -29,21 +23,6 @@ const DV_MAP = {
   Zinc: { dv: 11, unit: "mg", ul: 40 },
   Magnesium: { dv: 420, unit: "mg", ul: 350 },
 };
-
-const SUPPORTED_IMPORT_NUTRIENTS = new Set([
-  "Calcium",
-  "Iron",
-  "Magnesium",
-  "Zinc",
-  "Vitamin C",
-  "Vitamin D",
-  "Vitamin B-12",
-  "Folic Acid",
-  "Vitamin A",
-  "Vitamin E",
-  "Copper",
-  "Iodine",
-]);
 
 function formatAmount(value) {
   if (value === null || value === undefined || value === "") return "0";
@@ -120,6 +99,8 @@ function normalizeImportUnit(unit) {
   if (raw === "gram(s)") return "g";
   if (raw === "milligram(s)") return "mg";
   if (raw === "microgram(s)") return "mcg";
+  if (raw === "calorie(s)") return "kcal";
+  if (raw === "calories") return "kcal";
 
   return raw;
 }
@@ -135,6 +116,34 @@ function normalizeDsldName(name) {
   if (raw === "retinol") return "Vitamin A";
 
   return String(name || "").trim();
+}
+
+function inferDsldCategory(product) {
+  const text = `${product?.name || product?.raw?.fullName || ""} ${
+    product?.brand || product?.raw?.brandName || ""
+  }`.toLowerCase();
+
+  if (/adult|adults|men|women|silver/.test(text)) {
+    return {
+      value: "02",
+      label: "Adult MVM-2017",
+      confidence: "high",
+    };
+  }
+
+  if (/child|children|kids|kid|toddler|gummy/.test(text)) {
+    return {
+      value: null,
+      label: "Children formula detected — choose Children 1–4 or Children 4+ manually",
+      confidence: "needs_manual",
+    };
+  }
+
+  return {
+    value: null,
+    label: "Could not auto-detect — using current dropdown selection",
+    confidence: "unknown",
+  };
 }
 
 export default function App() {
@@ -161,6 +170,8 @@ export default function App() {
   const [selectedDsldProduct, setSelectedDsldProduct] = useState(null);
   const [dsldDetailLoading, setDsldDetailLoading] = useState(false);
   const [dsldDetailError, setDsldDetailError] = useState("");
+
+  const dsldSuggestedCategory = inferDsldCategory(selectedDsldProduct);
 
   const handlePredict = async () => {
     try {
@@ -346,71 +357,68 @@ export default function App() {
     }
   };
 
-const handleImportDsldProduct = () => {
-  const rows = selectedDsldProduct?.raw?.ingredientRows || [];
+  const handleImportDsldProduct = () => {
+    const rows = selectedDsldProduct?.raw?.ingredientRows || [];
 
-  if (!rows.length) {
-    alert("No ingredient data found.");
-    return;
-  }
-
-  const suggested = inferDsldCategory(selectedDsldProduct);
-
-  if (
-    suggested.confidence === "needs_manual" &&
-    !["03", "04"].includes(category)
-  ) {
-    alert(
-      "This looks like a children's product. Please choose Children 1–4 or Children 4+ in the category dropdown before importing."
-    );
-    return;
-  }
-
-  const importCategory = suggested.value || category;
-
-  const SUPPORTED = ["Calcium", "Iron", "Magnesium", "Zinc", "Vitamin C"];
-
-  const imported = [];
-  const skipped = [];
-
-  rows.forEach((row) => {
-    const qty = row.quantity?.[0];
-    const name = normalizeDsldName(row?.name);
-
-    if (!qty?.quantity || !qty?.unit) {
-      skipped.push(name || "Unknown");
+    if (!rows.length) {
+      alert("No ingredient data found.");
       return;
     }
 
-    if (!SUPPORTED.includes(name)) {
-      skipped.push(name);
+    if (
+      dsldSuggestedCategory.confidence === "needs_manual" &&
+      !["03", "04"].includes(category)
+    ) {
+      alert(
+        "This looks like a children's product. Please choose Children 1–4 or Children 4+ in the category dropdown before importing."
+      );
       return;
     }
 
-    imported.push({
-      category: importCategory,
-      nutrient: name,
-      label_claim: Number(qty.quantity),
-      unit: normalizeImportUnit(qty.unit),
-      servings_per_day: 1,
+    const importCategory = dsldSuggestedCategory.value || category;
+    const SUPPORTED = ["Calcium", "Iron", "Magnesium", "Zinc", "Vitamin C"];
+
+    const imported = [];
+    const skipped = [];
+
+    rows.forEach((row) => {
+      const qty = row.quantity?.[0];
+      const name = normalizeDsldName(row?.name);
+
+      if (!qty?.quantity || !qty?.unit) {
+        skipped.push(name || "Unknown");
+        return;
+      }
+
+      if (!SUPPORTED.includes(name)) {
+        skipped.push(name);
+        return;
+      }
+
+      imported.push({
+        category: importCategory,
+        nutrient: name,
+        label_claim: Number(qty.quantity),
+        unit: normalizeImportUnit(qty.unit),
+        servings_per_day: 1,
+      });
     });
-  });
 
-  if (!imported.length) {
-    alert("No supported nutrients found for prediction.");
-    return;
-  }
+    if (!imported.length) {
+      alert("No supported nutrients found for prediction.");
+      return;
+    }
 
-  setSupplementStack((prev) => [...prev, ...imported]);
+    setSupplementStack((prev) => [...prev, ...imported]);
 
-  alert(
-    `Using DSID model: ${categoryLabelMap[importCategory] || importCategory}\n` +
-      `Imported: ${imported.map((i) => i.nutrient).join(", ")}\n` +
-      (skipped.length
-        ? `Skipped: ${[...new Set(skipped)].join(", ")}`
-        : "")
-  );
-};
+    alert(
+      `Using DSID model: ${categoryLabelMap[importCategory] || importCategory}\n` +
+        `Imported: ${imported.map((i) => i.nutrient).join(", ")}\n` +
+        (skipped.length
+          ? `Skipped: ${[...new Set(skipped)].join(", ")}`
+          : "")
+    );
+  };
 
   const onSupplementImageChange = (e) => {
     const file = e.target.files?.[0];
@@ -612,38 +620,40 @@ const handleImportDsldProduct = () => {
               <strong>Name:</strong>{" "}
               {selectedDsldProduct.name || selectedDsldProduct.raw?.fullName || "N/A"}
             </div>
-<div style={{ marginTop: 8 }}>
-  <strong>Current DSID model:</strong>{" "}
-  {categoryLabelMap[category] || category}
-</div>
 
-<div style={{ marginTop: 4 }}>
-  <strong>Suggested model:</strong> {dsldSuggestedCategory.label}
-</div>
-
-{dsldSuggestedCategory.value && dsldSuggestedCategory.value !== category && (
-  <button
-    onClick={() => setCategory(dsldSuggestedCategory.value)}
-    style={{ marginTop: 8 }}
-  >
-    Use suggested model
-  </button>
-)}
-
-{dsldSuggestedCategory.confidence === "needs_manual" && (
-  <div style={{ marginTop: 8, color: "#b45309" }}>
-    Choose Children 1–4 or Children 4+ in the category dropdown before importing.
-  </div>
-)}
             <div>
               <strong>Brand:</strong>{" "}
               {selectedDsldProduct.brand || selectedDsldProduct.raw?.brandName || "N/A"}
             </div>
 
-
             <div>
               <strong>Product ID:</strong> {selectedDsldProduct.product_id || "N/A"}
             </div>
+
+            <div style={{ marginTop: 8 }}>
+              <strong>Current DSID model:</strong>{" "}
+              {categoryLabelMap[category] || category}
+            </div>
+
+            <div style={{ marginTop: 4 }}>
+              <strong>Suggested model:</strong> {dsldSuggestedCategory.label}
+            </div>
+
+            {dsldSuggestedCategory.value &&
+              dsldSuggestedCategory.value !== category && (
+                <button
+                  onClick={() => setCategory(dsldSuggestedCategory.value)}
+                  style={{ marginTop: 8 }}
+                >
+                  Use suggested model
+                </button>
+              )}
+
+            {dsldSuggestedCategory.confidence === "needs_manual" && (
+              <div style={{ marginTop: 8, color: "#b45309" }}>
+                Choose Children 1–4 or Children 4+ in the category dropdown before importing.
+              </div>
+            )}
 
             {selectedDsldProduct.raw?.ingredientRows?.length > 0 && (
               <div style={{ marginTop: 12 }}>
