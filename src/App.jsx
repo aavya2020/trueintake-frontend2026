@@ -7,7 +7,7 @@ const API =
 const categoryOptions = [
   { label: "Adult MVM-2017", value: "02" },
   { label: "Children 1-4", value: "03" },
-  { label: "Children 4+", value: "04" },
+  { label: "Children 4+", value: "05" },
 ];
 
 const categoryLabelMap = Object.fromEntries(
