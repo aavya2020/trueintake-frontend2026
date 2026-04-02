@@ -132,21 +132,35 @@ function inferDsldCategory(product) {
     };
   }
 
-  if (/child|children|kids|kid|toddler|baby|babies|gummy/.test(text)) {
+  if (/baby|babies|infant|toddler/.test(text)) {
     return {
-      value: null,
-      label: "Children formula detected — choose Children 1–4 or Children 4+ manually",
-      confidence: "needs_manual",
+      value: "03",
+      label: "Children 1–4 (auto-detected)",
+      confidence: "high",
+    };
+  }
+
+  if (/child|children|kids|kid|gummy/.test(text)) {
+    return {
+      value: "05",
+      label: "Children 4+ (auto-detected)",
+      confidence: "high",
     };
   }
 
   return {
     value: null,
-    label: "Could not auto-detect — using current dropdown selection",
+    label: "Could not auto-detect — choose manually",
     confidence: "unknown",
   };
 }
 
+  return {
+    value: null,
+    label: "Could not auto-detect — choose manually",
+    confidence: "unknown",
+  };
+}
 export default function App() {
   const [category, setCategory] = useState("02");
   const [nutrient, setNutrient] = useState("Calcium");
@@ -354,6 +368,13 @@ export default function App() {
       }
 
       setSelectedDsldProduct(data);
+
+const inferred = inferDsldCategory(data);
+
+if (inferred.value) {
+  setCategory(inferred.value);
+  setImportCategoryOverride(inferred.value);
+}
     } catch (err) {
       setDsldDetailError(err.message || "Could not load product details");
     } finally {
@@ -637,7 +658,7 @@ export default function App() {
             </div>
 
             <div style={{ marginTop: 4 }}>
-              <strong>Suggested model:</strong> {dsldSuggestedCategory.label}
+              <strong>Detected model:</strong> {dsldSuggestedCategory.label}
             </div>
 
             {dsldSuggestedCategory.value &&
