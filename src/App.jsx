@@ -108,13 +108,20 @@ function normalizeImportUnit(unit) {
 function normalizeDsldName(name) {
   const raw = String(name || "").trim().toLowerCase();
 
+  if (raw.includes("vitamin c") || raw.includes("ascorbic")) {
+    return "Vitamin C";
+  }
+  if (raw.includes("calcium")) return "Calcium";
+  if (raw.includes("iron")) return "Iron";
+  if (raw.includes("magnesium")) return "Magnesium";
+  if (raw.includes("zinc")) return "Zinc";
+
   if (raw === "vitamin b12") return "Vitamin B-12";
   if (raw === "b12") return "Vitamin B-12";
   if (raw === "folate") return "Folic Acid";
   if (raw === "vitamin d3") return "Vitamin D";
   if (raw === "vitamin a palmitate") return "Vitamin A";
   if (raw === "retinol") return "Vitamin A";
-  if (raw === "ascorbic acid") return "Vitamin C";
 
   return String(name || "").trim();
 }
@@ -155,12 +162,6 @@ function inferDsldCategory(product) {
   };
 }
 
-  return {
-    value: null,
-    label: "Could not auto-detect — choose manually",
-    confidence: "unknown",
-  };
-}
 export default function App() {
   const [category, setCategory] = useState("02");
   const [nutrient, setNutrient] = useState("Calcium");
@@ -172,8 +173,6 @@ export default function App() {
   const [selectedFoods, setSelectedFoods] = useState([]);
   const [supplementStack, setSupplementStack] = useState([]);
   const [totals, setTotals] = useState(null);
-
-  const [isPro, setIsPro] = useState(false);
 
   const [supplementImageName, setSupplementImageName] = useState("");
   const [foodImageName, setFoodImageName] = useState("");
@@ -369,12 +368,11 @@ export default function App() {
 
       setSelectedDsldProduct(data);
 
-const inferred = inferDsldCategory(data);
-
-if (inferred.value) {
-  setCategory(inferred.value);
-  setImportCategoryOverride(inferred.value);
-}
+      const inferred = inferDsldCategory(data);
+      if (inferred.value) {
+        setCategory(inferred.value);
+        setImportCategoryOverride(inferred.value);
+      }
     } catch (err) {
       setDsldDetailError(err.message || "Could not load product details");
     } finally {
@@ -520,39 +518,6 @@ if (inferred.value) {
           your totals come from, compare against Daily Value, and spot possible
           excess before it becomes a problem.
         </p>
-      </div>
-
-      <div
-        style={{
-          ...card,
-          background: isPro ? "#ecfdf5" : "#fff7ed",
-          border: isPro ? "1px solid #a7f3d0" : "1px solid #fdba74",
-        }}
-      >
-        <h3 style={{ marginTop: 0 }}>
-          {isPro ? "Pro is unlocked" : "Unlock TrueIntake Pro"}
-        </h3>
-        <p style={{ color: "#4b5563" }}>
-          Pro adds %DV, intake status, and safety insight flags. For now, this
-          is a demo unlock so you can test premium value before payments go
-          live.
-        </p>
-
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-          <div style={{ background: "#fff", padding: "8px 12px", borderRadius: 10, border: "1px solid #e5e7eb" }}>
-            %DV insights
-          </div>
-          <div style={{ background: "#fff", padding: "8px 12px", borderRadius: 10, border: "1px solid #e5e7eb" }}>
-            Low / High status
-          </div>
-          <div style={{ background: "#fff", padding: "8px 12px", borderRadius: 10, border: "1px solid #e5e7eb" }}>
-            Excess warnings
-          </div>
-        </div>
-
-        <button onClick={() => setIsPro((v) => !v)}>
-          {isPro ? "Turn off Pro demo" : "Unlock Pro demo"}
-        </button>
       </div>
 
       <div style={card}>
@@ -701,8 +666,8 @@ if (inferred.value) {
 
                   <button
                     onClick={() => {
-                      setCategory("04");
-                      setImportCategoryOverride("04");
+                      setCategory("05");
+                      setImportCategoryOverride("05");
                     }}
                   >
                     Use Children 4+
@@ -956,22 +921,7 @@ if (inferred.value) {
             </div>
           )}
 
-          {!isPro && (
-            <div
-              style={{
-                background: "#eff6ff",
-                border: "1px solid #93c5fd",
-                padding: 12,
-                borderRadius: 12,
-                marginBottom: 12,
-              }}
-            >
-              <strong>Pro preview locked.</strong> Unlock Pro demo above to see
-              %DV, intake status, and excess warnings.
-            </div>
-          )}
-
-          {isPro && hasUpperLimitWarning && (
+          {hasUpperLimitWarning && (
             <div
               style={{
                 background: "#fff4e5",
@@ -989,9 +939,7 @@ if (inferred.value) {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: isPro
-                    ? "2fr 1fr 1fr 1fr 1fr 1.5fr"
-                    : "2fr 1fr 1fr 1fr",
+                  gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1.5fr",
                   gap: 8,
                   fontWeight: "bold",
                   marginBottom: 8,
@@ -1001,8 +949,8 @@ if (inferred.value) {
                 <div>From food</div>
                 <div>From supplement</div>
                 <div>Total</div>
-                {isPro && <div>%DV</div>}
-                {isPro && <div>Status</div>}
+                <div>%DV</div>
+                <div>Status</div>
               </div>
 
               {totals.totals.map((item, idx) => {
@@ -1016,9 +964,7 @@ if (inferred.value) {
                     key={idx}
                     style={{
                       display: "grid",
-                      gridTemplateColumns: isPro
-                        ? "2fr 1fr 1fr 1fr 1fr 1.5fr"
-                        : "2fr 1fr 1fr 1fr",
+                      gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1.5fr",
                       gap: 8,
                       marginBottom: 6,
                     }}
@@ -1035,8 +981,8 @@ if (inferred.value) {
                     <div>
                       {formatAmount(total)} {unit}
                     </div>
-                    {isPro && <div>{pct === null ? "—" : `${formatAmount(pct)}%`}</div>}
-                    {isPro && <div>{status}</div>}
+                    <div>{pct === null ? "—" : `${formatAmount(pct)}%`}</div>
+                    <div>{status}</div>
                   </div>
                 );
               })}
