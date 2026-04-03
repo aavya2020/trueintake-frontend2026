@@ -5,9 +5,9 @@ const API =
   "https://trueintake-backend2026.onrender.com";
 
 const categoryOptions = [
-  { label: "Adult MVM-2017", value: "02" },
-  { label: "Children 1-4", value: "03" },
-  { label: "Children 4+", value: "05" },
+  { label: "Adult MVM-2017", value: "05" },
+  { label: "Children 1-4", value: "02A" },
+  { label: "Children 4+", value: "02" },
 ];
 
 const categoryLabelMap = Object.fromEntries(
